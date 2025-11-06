@@ -159,7 +159,7 @@ $indiceEnQuery = $_POST['index'] ?? null;
 }
 // 6.2) Validaciones de existencia del parámetro
 if ($indiceEnQuery === null) {
-responder_json_error('Falta el parámetro "index" para eliminar.', 422);
+responder_json_error('Falta el pa rámetro "index" para eliminar.', 422);
 }
 $indiceUsuarioAEliminar = (int) $indiceEnQuery;
 if (!isset($listaUsuarios[$indiceUsuarioAEliminar])) {
