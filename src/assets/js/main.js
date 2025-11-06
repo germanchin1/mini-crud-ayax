@@ -11,6 +11,9 @@ const formularioAltaUsuario = document.getElementById('formCreate'); // <form> d
 const nodoZonaMensajesEstado = document.getElementById('msg'); // <div> mensajes
 const nodoBotonAgregarUsuario = document.getElementById('boton-agregar-usuario');
 const nodoIndicadorCargando = document.getElementById('indicador-cargando');
+// Estado de edición
+let indiceEnEdicion = null;
+let nodoBotonCancelarEdicion = null;
 // -----------------------------------------------------------------------------
 // BLOQUE: Gestión de mensajes de estado (éxito / error)
 // -----------------------------------------------------------------------------
@@ -64,11 +67,8 @@ nodoFila.innerHTML = `
 <td>${convertirATextoSeguro(usuario?.nombre ?? '')}</td>
 <td>${convertirATextoSeguro(usuario?.email ?? '')}</td>
 <td>
-<buttontype="button"
-data-posicion="${posicionEnLista}"
-aria-label="Eliminar usuario ${posicionEnLista + 1}">
-Eliminar
-</buttontype=>
+	<button type="button" data-posicion="${posicionEnLista}" data-action="edit" aria-label="Editar usuario ${posicionEnLista + 1}">Editar</button>
+	<button type="button" data-posicion="${posicionEnLista}" data-action="delete" aria-label="Eliminar usuario ${posicionEnLista + 1}">Eliminar</button>
 </td>
 `;
 nodoCuerpoTablaUsuarios.appendChild(nodoFila);
@@ -105,49 +105,116 @@ mostrarMensajeDeEstado('error', 'Los campos Nombre y Email son obligatorios.');
 return;
 }
 try {
-activarEstadoCargando();
-const respuestaHttp = await fetch(`${URL_API_SERVIDOR}?action=create`, {
-method: 'POST',
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify(datosUsuarioNuevo),
-});
-const cuerpoJson = await respuestaHttp.json();
-if (!cuerpoJson.ok) {
-throw new Error(cuerpoJson.error || 'No fue posible crear el usuario.');
-}
-renderizarTablaDeUsuarios(cuerpoJson.data);
-formularioAltaUsuario.reset();
-mostrarMensajeDeEstado('ok', 'Usuario agregado correctamente.');
+	activarEstadoCargando();
+	// Si estamos en modo edición, llamamos a la acción update
+	if (Number.isInteger(indiceEnEdicion)) {
+		const respuestaHttp = await fetch(`${URL_API_SERVIDOR}?action=update`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ index: indiceEnEdicion, ...datosUsuarioNuevo }),
+		});
+		const cuerpoJson = await respuestaHttp.json();
+		if (!cuerpoJson.ok) {
+			throw new Error(cuerpoJson.error || 'No fue posible actualizar el usuario.');
+		}
+		renderizarTablaDeUsuarios(cuerpoJson.data);
+		formularioAltaUsuario.reset();
+		salirModoEdicion();
+		mostrarMensajeDeEstado('ok', 'Usuario actualizado correctamente.');
+	} else {
+		const respuestaHttp = await fetch(`${URL_API_SERVIDOR}?action=create`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(datosUsuarioNuevo),
+		});
+		const cuerpoJson = await respuestaHttp.json();
+		if (!cuerpoJson.ok) {
+			throw new Error(cuerpoJson.error || 'No fue posible crear el usuario.');
+		}
+		renderizarTablaDeUsuarios(cuerpoJson.data);
+		formularioAltaUsuario.reset();
+		mostrarMensajeDeEstado('ok', 'Usuario agregado correctamente.');
+	}
 } catch (error) {
-mostrarMensajeDeEstado('error', error.message);
+	mostrarMensajeDeEstado('error', error.message);
 } finally {
-desactivarEstadoCargando();
+	desactivarEstadoCargando();
 }
 });
+
+// Entrar en modo edición: rellenar formulario y ajustar botones
+function entrarModoEdicion(indice, usuario) {
+	indiceEnEdicion = indice;
+	formularioAltaUsuario.querySelector('[name="nombre"]').value = usuario.nombre ?? '';
+	formularioAltaUsuario.querySelector('[name="email"]').value = usuario.email ?? '';
+	if (nodoBotonAgregarUsuario) nodoBotonAgregarUsuario.textContent = 'Guardar cambios';
+	// Crear botón cancelar si no existe
+	if (!nodoBotonCancelarEdicion && nodoBotonAgregarUsuario) {
+		nodoBotonCancelarEdicion = document.createElement('button');
+		nodoBotonCancelarEdicion.type = 'button';
+		nodoBotonCancelarEdicion.id = 'boton-cancelar-edicion';
+		nodoBotonCancelarEdicion.textContent = 'Cancelar';
+		nodoBotonCancelarEdicion.className = 'boton-secundario';
+		nodoBotonAgregarUsuario.insertAdjacentElement('afterend', nodoBotonCancelarEdicion);
+		nodoBotonCancelarEdicion.addEventListener('click', () => {
+			formularioAltaUsuario.reset();
+			salirModoEdicion();
+		});
+	}
+}
+
+function salirModoEdicion() {
+	indiceEnEdicion = null;
+	if (nodoBotonAgregarUsuario) nodoBotonAgregarUsuario.textContent = 'Agregar usuario';
+	if (nodoBotonCancelarEdicion) {
+		nodoBotonCancelarEdicion.remove();
+		nodoBotonCancelarEdicion = null;
+	}
+}
 // -----------------------------------------------------------------------------
 // BLOQUE: Eliminación de usuario (POST delete) mediante delegación
 // -----------------------------------------------------------------------------
+// Delegación para Editar / Eliminar
 nodoCuerpoTablaUsuarios?.addEventListener('click', async (evento) => {
-const nodoBotonEliminar = evento.target.closest('button[data-posicion]');
-if (!nodoBotonEliminar) return;
-const posicionUsuarioAEliminar = parseInt(nodoBotonEliminar.dataset.posicion, 10);
-if (!Number.isInteger(posicionUsuarioAEliminar)) return;
-if (!window.confirm('¿Deseas eliminar este usuario?')) return;
-try {
-const respuestaHttp = await fetch(`${URL_API_SERVIDOR}?action=delete`, {
-method: 'POST',
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({ index: posicionUsuarioAEliminar }),
-});
-const cuerpoJson = await respuestaHttp.json();
-if (!cuerpoJson.ok) {
-throw new Error(cuerpoJson.error || 'No fue posible eliminar el usuario.');
-}
-renderizarTablaDeUsuarios(cuerpoJson.data);
-mostrarMensajeDeEstado('ok', 'Usuario eliminado correctamente.');
-} catch (error) {
-mostrarMensajeDeEstado('error', error.message);
-}
+	const nodoBoton = evento.target.closest('button[data-posicion]');
+	if (!nodoBoton) return;
+	const posicion = parseInt(nodoBoton.dataset.posicion, 10);
+	if (!Number.isInteger(posicion)) return;
+	const accion = nodoBoton.dataset.action || 'delete';
+
+	if (accion === 'edit') {
+		// Rellenar formulario y cambiar a modo edición
+		// Intentamos tomar los valores desde la fila para mayor rapidez
+		const fila = nodoBoton.closest('tr');
+		const celdas = fila ? fila.querySelectorAll('td') : [];
+		const nombre = celdas[1]?.textContent?.trim() ?? '';
+		const email = celdas[2]?.textContent?.trim() ?? '';
+		entrarModoEdicion(posicion, { nombre, email });
+		return;
+	}
+
+	// Acción por defecto: eliminar
+	if (!window.confirm('¿Deseas eliminar este usuario?')) return;
+	try {
+		const respuestaHttp = await fetch(`${URL_API_SERVIDOR}?action=delete`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ index: posicion }),
+		});
+		const cuerpoJson = await respuestaHttp.json();
+		if (!cuerpoJson.ok) {
+			throw new Error(cuerpoJson.error || 'No fue posible eliminar el usuario.');
+		}
+		renderizarTablaDeUsuarios(cuerpoJson.data);
+		mostrarMensajeDeEstado('ok', 'Usuario eliminado correctamente.');
+		// Si eliminamos una fila mientras estábamos editando esa misma fila, salir del modo edición
+		if (Number.isInteger(indiceEnEdicion) && indiceEnEdicion === posicion) {
+			formularioAltaUsuario.reset();
+			salirModoEdicion();
+		}
+	} catch (error) {
+		mostrarMensajeDeEstado('error', error.message);
+	}
 });
 // -----------------------------------------------------------------------------
 // BLOQUE: Inicialización de la pantalla

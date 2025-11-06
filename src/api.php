@@ -99,6 +99,48 @@ json_encode($listaUsuarios, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n"
 );
 responder_json_exito($listaUsuarios, 201);
 }
+
+// 5.b) ACTUALIZAR usuario: POST /api.php?action=update
+// Body JSON esperado: { "index": 0, "nombre": "...", "email": "..." }
+if ($metodoHttpRecibido === 'POST' && $accionSolicitada === 'update') {
+	$cuerpoBruto = (string) file_get_contents('php://input');
+	$datosDecodificados = $cuerpoBruto !== '' ? (json_decode($cuerpoBruto, true) ?? []) : [];
+	$indice = isset($datosDecodificados['index']) ? (int) $datosDecodificados['index'] : (isset($_POST['index']) ? (int) $_POST['index'] : null);
+	$nombreNuevo = trim((string) ($datosDecodificados['nombre'] ?? $_POST['nombre'] ?? ''));
+	$correoNuevo = trim((string) ($datosDecodificados['email'] ?? $_POST['email'] ?? ''));
+	$correoNormalizado = mb_strtolower($correoNuevo);
+
+	if ($indice === null) {
+		responder_json_error('Falta el parámetro "index" para actualizar.', 422);
+	}
+	if (!isset($listaUsuarios[$indice])) {
+		responder_json_error('El índice indicado no existe.', 404);
+	}
+	// Validaciones similares a create
+	if ($nombreNuevo === '' || $correoNuevo === '') {
+		responder_json_error('Los campos "nombre" y "email" son obligatorios.', 422);
+	}
+	if (!filter_var($correoNuevo, FILTER_VALIDATE_EMAIL)) {
+		responder_json_error('El campo "email" no tiene un formato válido.', 422);
+	}
+	// Evitar duplicados por email, ignorando el propio índice que actualizamos
+	foreach ($listaUsuarios as $i => $u) {
+		if ($i === $indice) continue;
+		if (isset($u['email']) && is_string($u['email']) && mb_strtolower($u['email']) === $correoNormalizado) {
+			responder_json_error('Ya existe un usuario con ese email.', 409);
+		}
+	}
+	// Aplicar cambios
+	$listaUsuarios[$indice] = [
+		'nombre' => $nombreNuevo,
+		'email' => $correoNormalizado,
+	];
+	file_put_contents(
+		$rutaArchivoDatosJson,
+		json_encode($listaUsuarios, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n"
+	);
+	responder_json_exito($listaUsuarios, 200);
+}
 // 6) ELIMINAR usuario: POST /api.php?action=delete
 // Body JSON esperado: { "index": 0 }
 // Nota: podríamos usar método DELETE; aquí lo simplificamos a POST.
