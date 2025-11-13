@@ -79,15 +79,32 @@ nodoCuerpoTablaUsuarios.appendChild(nodoFila);
 // -----------------------------------------------------------------------------
 async function obtenerYMostrarListadoDeUsuarios() {
 try {
-const respuestaHttp = await fetch(`${URL_API_SERVIDOR}?action=list`);
-const cuerpoJson = await respuestaHttp.json();
-if (!cuerpoJson.ok) {
-throw new Error(cuerpoJson.error || 'No fue posible obtener el listado.');
-}
-renderizarTablaDeUsuarios(cuerpoJson.data);
+		const respuestaHttp = await fetch(`${URL_API_SERVIDOR}?action=list`);
+		if (respuestaHttp.status === 401) {
+			// No autenticado: redirigir al login
+			window.location.href = '/login.html';
+			return;
+		}
+		const cuerpoJson = await respuestaHttp.json();
+		if (!cuerpoJson.ok) {
+			throw new Error(cuerpoJson.error || 'No fue posible obtener el listado.');
+		}
+		renderizarTablaDeUsuarios(cuerpoJson.data);
 } catch (error) {
 mostrarMensajeDeEstado('error', error.message);
 }
+}
+
+// Manejar logout (botón en header)
+const nodoBotonLogout = document.getElementById('boton-logout');
+if (nodoBotonLogout) {
+	nodoBotonLogout.addEventListener('click', async () => {
+		try {
+			await fetch(`${URL_API_SERVIDOR}?action=logout`);
+		} finally {
+			window.location.href = '/login.html';
+		}
+	});
 }
 // -----------------------------------------------------------------------------
 // BLOQUE: Alta de usuario (POST create) sin recargar la página

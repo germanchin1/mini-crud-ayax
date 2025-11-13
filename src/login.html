@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Login — Mini CRUD</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/assets/css/styles.css">
+</head>
+<body>
+<main>
+<h1>Iniciar sesión</h1>
+<form id="formLogin">
+<label for="login-email">Email</label>
+<input id="login-email" name="email" type="email" required>
+<label for="login-password">Contraseña</label>
+<input id="login-password" name="password" type="password" required>
+<button type="submit">Entrar</button>
+</form>
+<p>¿No tienes cuenta? <a href="/register.html">Regístrate</a></p>
+<div id="msg" role="status" aria-live="polite"></div>
+<script>
+const API = '/api.php';
+const form = document.getElementById('formLogin');
+const msg = document.getElementById('msg');
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(form);
+  const payload = { email: String(fd.get('email')||'').trim(), password: String(fd.get('password')||'') };
+  try {
+    const res = await fetch(`${API}?action=login`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || 'Error');
+    // redirect to protected page
+    window.location.href = '/index_ajax.php';
+  } catch (err) {
+    msg.textContent = err.message;
+    msg.className = 'error';
+    setTimeout(()=>{ msg.textContent=''; msg.className=''; }, 3000);
+  }
+});
+</script>
+</main>
+</body>
+</html>
