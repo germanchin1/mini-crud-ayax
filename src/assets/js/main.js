@@ -203,6 +203,7 @@ async function handleLogout() {
 	try { await api.logout(); }
 	catch (_) {}
 	location.href = '/login.html';
+	console.log('Cerrando sesión...');
 }
 
 // -----------------------------
