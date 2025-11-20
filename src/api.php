@@ -1,279 +1,183 @@
 <?php
-declare(strict_types=1);
 /**
-* API del Mini-CRUD
-* Acciones admitidas: list | create | delete
-* Persistencia: archivo JSON (data.json) en el mismo directorio.
-*
-* Nota didáctica:
-* - Este archivo se invoca desde el navegador mediante fetch() (AJAX).
-* - Siempre respondemos en JSON.
-* - Las validaciones mínimas se realizan en servidor, aunque el cliente valide.
-*/
-// 1) Todas las respuestas serán JSON UTF-8
+ * API mínima pensada para ser fácil de leer.
+ * Cada acción (register, login, list, etc.) tiene su propia función handle_*.
+ * Las utilidades de lectura/escritura JSON también viven en funciones cortas.
+ */
+declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
-// Iniciamos sesión para soportar autenticación simple
 session_start();
 
-// Ruta al archivo de usuarios para autenticación
-$rutaArchivoUsuarios = __DIR__ . '/users.json';
-if (!file_exists($rutaArchivoUsuarios)) {
-	file_put_contents($rutaArchivoUsuarios, json_encode([]) . "\n");
-}
-// Cargar usuarios
-$listaUsuariosRegistrados = json_decode((string) file_get_contents($rutaArchivoUsuarios), true);
-if (!is_array($listaUsuariosRegistrados)) $listaUsuariosRegistrados = [];
+// Archivos de persistencia sencillos (si no existen se crean vacíos)
+$USERS_FILE = __DIR__ . '/users.json';
+$DATA_FILE = __DIR__ . '/data.json';
+if (!file_exists($USERS_FILE)) file_put_contents($USERS_FILE, json_encode([]) . "\n");
+if (!file_exists($DATA_FILE)) file_put_contents($DATA_FILE, json_encode([]) . "\n");
 
-function usuario_autenticado(): ?array {
-	return isset($_SESSION['usuario']) && is_array($_SESSION['usuario']) ? $_SESSION['usuario'] : null;
+// ------------------------
+// UTILIDADES GENERALES
+// ------------------------
+
+function ok($data = []): void { http_response_code(200); echo json_encode(['ok' => true, 'data' => $data]); exit; }
+function err(string $msg, int $code = 400): void { http_response_code($code); echo json_encode(['ok' => false, 'error' => $msg]); exit; }
+
+function get_action(): string {
+	return $_GET['action'] ?? $_POST['action'] ?? 'list';
 }
 
-function asegurar_autenticado(): void {
-	if (!usuario_autenticado()) {
-		responder_json_error('No autorizado. Inicie sesión.', 401);
+function read_json(string $path): array {
+	return json_decode((string) file_get_contents($path), true) ?: [];
+}
+
+function write_json(string $path, array $payload): void {
+	file_put_contents($path, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n");
+}
+
+function get_body(): array {
+	$raw = json_decode(file_get_contents('php://input'), true);
+	return is_array($raw) ? $raw : ($_POST ?: []);
+}
+
+function require_auth(): void {
+	if (!isset($_SESSION['user'])) err('No autorizado', 401);
+}
+
+function load_users(): array {
+	global $USERS_FILE;
+	return read_json($USERS_FILE);
+}
+
+function save_users(array $users): void {
+	global $USERS_FILE;
+	write_json($USERS_FILE, $users);
+}
+
+function load_entries(): array {
+	global $DATA_FILE;
+	return read_json($DATA_FILE);
+}
+
+function save_entries(array $entries): void {
+	global $DATA_FILE;
+	write_json($DATA_FILE, $entries);
+}
+
+// ------------------------
+// HANDLERS DE AUTENTICACIÓN
+// ------------------------
+
+function handle_register(): void {
+	// Paso 1: leer datos tal cual vienen.
+	$b = get_body();
+	$name = trim((string)($b['nombre'] ?? ''));
+	$email = trim(mb_strtolower((string)($b['email'] ?? '')));
+	$pass = (string)($b['password'] ?? '');
+	if ($name === '' || $email === '' || $pass === '') err('Completa todos los campos', 422);
+	// Paso 2: evitar duplicados de forma muy directa.
+	$users = load_users();
+	foreach ($users as $user) {
+		if (($user['email'] ?? '') === $email) err('Ese email ya existe', 409);
 	}
+	// Paso 3: guardar y dejar sesión iniciada.
+	$users[] = ['nombre' => $name, 'email' => $email, 'password' => password_hash($pass, PASSWORD_DEFAULT)];
+	save_users($users);
+	$_SESSION['user'] = ['nombre' => $name, 'email' => $email];
+	ok($_SESSION['user']);
 }
-/**
-* Envía una respuesta de éxito con envoltura homogénea.
-*
-* @param mixed $contenidoDatos Datos a devolver (ej: lista de usuarios)
-* @param int $codigoHttp Código de estado HTTP (200 por defecto).
-*/
-function responder_json_exito(mixed $contenidoDatos = [], int $codigoHttp = 200): void {
-http_response_code($codigoHttp);
-echo json_encode(
-['ok' => true, 'data' => $contenidoDatos],
-JSON_UNESCAPED_UNICODE
-);
-exit;
-}
-/**
-* Envía una respuesta de error con envoltura homogénea.
-*
-* @param string $mensajeError Mensaje de error legible para el cliente.
-* @param int $codigoHttp Código de estado HTTP (400 por defecto).
-*/
-function responder_json_error(string $mensajeError, int $codigoHttp = 400): void {
-http_response_code($codigoHttp);
-echo json_encode(
-['ok' => false, 'error' => $mensajeError],
-JSON_UNESCAPED_UNICODE
-);
-exit;
-}
-// 2) Ruta al archivo de persistencia (misma carpeta)
-$rutaArchivoDatosJson = __DIR__ . '/data.json';
-// 2.1) Si no existe, lo creamos con un array JSON vacío ([])
-if (!file_exists($rutaArchivoDatosJson)) {
-file_put_contents($rutaArchivoDatosJson, json_encode([]) . "\n");
-}
-// 2.2) Cargar su contenido como array asociativo de PHP
-$listaUsuarios = json_decode((string) file_get_contents($rutaArchivoDatosJson), true);
-// 2.3) Si por cualquier motivo no es un array, lo normalizamos a []
-if (!is_array($listaUsuarios)) {
-$listaUsuarios = [];
-}
-// 3) Método HTTP y acción (por querystring o formulario)
-// - Por simplicidad: list en GET; create y delete por POST.
-// - Si no llega 'action', usamos 'list' como valor por defecto.
-$metodoHttpRecibido = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$accionSolicitada = $_GET['action'] ?? $_POST['action'] ?? 'list';
-// Acciones públicas: register, login, logout, auth
-if ($accionSolicitada === 'register' && $metodoHttpRecibido === 'POST') {
-	$cuerpoBruto = (string) file_get_contents('php://input');
-	$datos = $cuerpoBruto !== '' ? (json_decode($cuerpoBruto, true) ?? []) : [];
-	$nombre = trim((string) ($datos['nombre'] ?? $_POST['nombre'] ?? ''));
-	$email = trim((string) ($datos['email'] ?? $_POST['email'] ?? ''));
-	$password = (string) ($datos['password'] ?? $_POST['password'] ?? '');
-	if ($nombre === '' || $email === '' || $password === '') {
-		responder_json_error('Faltan campos requeridos.', 422);
-	}
-	if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-		responder_json_error('Email inválido.', 422);
-	}
-	$emailNorm = mb_strtolower($email);
-	// comprobar duplicado
-	foreach ($listaUsuariosRegistrados as $u) {
-		if (isset($u['email']) && mb_strtolower($u['email']) === $emailNorm) {
-			responder_json_error('Ya existe un usuario con ese email.', 409);
+
+function handle_login(): void {
+	// Solo necesitamos email + password. Nada más.
+	$b = get_body();
+	$email = trim(mb_strtolower((string)($b['email'] ?? '')));
+	$pass = (string)($b['password'] ?? '');
+	if ($email === '' || $pass === '') err('Escribe email y contraseña', 422);
+	foreach (load_users() as $user) {
+		$matchesEmail = (($user['email'] ?? '') === $email);
+		$matchesPass = isset($user['password']) && password_verify($pass, $user['password']);
+		if ($matchesEmail && $matchesPass) {
+			$_SESSION['user'] = ['nombre' => $user['nombre'], 'email' => $email];
+			ok($_SESSION['user']);
 		}
 	}
-	$hash = password_hash($password, PASSWORD_DEFAULT);
-	$nuevoUsuario = ['nombre' => $nombre, 'email' => $emailNorm, 'password' => $hash];
-	$listaUsuariosRegistrados[] = $nuevoUsuario;
-	file_put_contents($rutaArchivoUsuarios, json_encode($listaUsuariosRegistrados, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n");
-	// iniciar sesión automáticamente
-	$_SESSION['usuario'] = ['nombre' => $nombre, 'email' => $emailNorm];
-	responder_json_exito(['nombre' => $nombre, 'email' => $emailNorm], 201);
+	err('Credenciales inválidas', 401);
 }
 
-if ($accionSolicitada === 'login' && $metodoHttpRecibido === 'POST') {
-	$cuerpoBruto = (string) file_get_contents('php://input');
-	$datos = $cuerpoBruto !== '' ? (json_decode($cuerpoBruto, true) ?? []) : [];
-	$email = trim((string) ($datos['email'] ?? $_POST['email'] ?? ''));
-	$password = (string) ($datos['password'] ?? $_POST['password'] ?? '');
-	if ($email === '' || $password === '') responder_json_error('Faltan credenciales.', 422);
-	$emailNorm = mb_strtolower($email);
-	foreach ($listaUsuariosRegistrados as $u) {
-		if (isset($u['email']) && mb_strtolower($u['email']) === $emailNorm) {
-			if (isset($u['password']) && password_verify($password, $u['password'])) {
-				$_SESSION['usuario'] = ['nombre' => $u['nombre'], 'email' => $emailNorm];
-				responder_json_exito(['nombre' => $u['nombre'], 'email' => $emailNorm], 200);
-			}
-			responder_json_error('Credenciales inválidas.', 401);
-		}
-	}
-	responder_json_error('Credenciales inválidas.', 401);
-}
-
-if ($accionSolicitada === 'logout') {
+function handle_logout(): void {
+	// Cerrar sesión es literalmente limpiar $_SESSION y responder ok.
 	session_unset();
 	session_destroy();
-	responder_json_exito([], 200);
+	ok([]);
 }
 
-if ($accionSolicitada === 'auth') {
-	$u = usuario_autenticado();
-	if ($u) responder_json_exito($u);
-	responder_json_error('No autenticado', 401);
-}
-// 4) LISTAR usuarios: GET /api.php?action=list
-if ($metodoHttpRecibido === 'GET' && $accionSolicitada === 'list') {
-	asegurar_autenticado();
-	responder_json_exito($listaUsuarios); // 200 OK
-}
-// 5) CREAR usuario: POST /api.php?action=create
-// Body JSON esperado: { "nombre": "...", "email": "..." }
-if ($metodoHttpRecibido === 'POST' && $accionSolicitada === 'create') {
-	asegurar_autenticado();
-$cuerpoBruto = (string) file_get_contents('php://input');
-$datosDecodificados = $cuerpoBruto !== '' ? (json_decode($cuerpoBruto, true) ?? []) : [];
-// Extraemos datos y normalizamos
-$nombreUsuarioNuevo = trim((string) ($datosDecodificados['nombre'] ?? $_POST['nombre'] ?? ''));
-$correoUsuarioNuevo = trim((string) ($datosDecodificados['email'] ?? $_POST['email'] ?? ''));
-$correoUsuarioNormalizado = mb_strtolower($correoUsuarioNuevo);
-// Validación mínima en servidor
-if ($nombreUsuarioNuevo === '' || $correoUsuarioNuevo === '') {
-responder_json_error('Los campos "nombre" y "email" son obligatorios.', 422);
-}
-if (!filter_var($correoUsuarioNuevo, FILTER_VALIDATE_EMAIL)) {
-responder_json_error('El campo "email" no tiene un formato válido.', 422);
-}
-// Límites razonables para este ejercicio
-if (mb_strlen($nombreUsuarioNuevo) > 60) {
-responder_json_error('El campo "nombre" excede los 60 caracteres.', 422);
-}
-if (mb_strlen($correoUsuarioNuevo) > 120) {
-responder_json_error('El campo "email" excede los 120 caracteres.', 422);
-}
-// Evitar duplicados por email
-if (existeEmailDuplicado($listaUsuarios, $correoUsuarioNormalizado)) {
-responder_json_error('Ya existe un usuario con ese email.', 409);
-}
-// Agregamos y persistimos (guardamos el email normalizado)
-$listaUsuarios[] = [
-'nombre' => $nombreUsuarioNuevo,
-'email' => $correoUsuarioNormalizado,
-];
-file_put_contents(
-$rutaArchivoDatosJson,
-json_encode($listaUsuarios, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n"
-);
-responder_json_exito($listaUsuarios, 201);
+function handle_auth(): void {
+	// Devuelve los datos de sesión si existen.
+	if (isset($_SESSION['user'])) ok($_SESSION['user']);
+	err('No autenticado', 401);
 }
 
-// 5.b) ACTUALIZAR usuario: POST /api.php?action=update
-// Body JSON esperado: { "index": 0, "nombre": "...", "email": "..." }
-if ($metodoHttpRecibido === 'POST' && $accionSolicitada === 'update') {
-	$cuerpoBruto = (string) file_get_contents('php://input');
-	$datosDecodificados = $cuerpoBruto !== '' ? (json_decode($cuerpoBruto, true) ?? []) : [];
-	$indice = isset($datosDecodificados['index']) ? (int) $datosDecodificados['index'] : (isset($_POST['index']) ? (int) $_POST['index'] : null);
-	$nombreNuevo = trim((string) ($datosDecodificados['nombre'] ?? $_POST['nombre'] ?? ''));
-	$correoNuevo = trim((string) ($datosDecodificados['email'] ?? $_POST['email'] ?? ''));
-	$correoNormalizado = mb_strtolower($correoNuevo);
+// ------------------------
+// HANDLERS DEL CRUD
+// ------------------------
 
-	if ($indice === null) {
-		responder_json_error('Falta el parámetro "index" para actualizar.', 422);
-	}
-	if (!isset($listaUsuarios[$indice])) {
-		responder_json_error('El índice indicado no existe.', 404);
-	}
-	// Validaciones similares a create
-	if ($nombreNuevo === '' || $correoNuevo === '') {
-		responder_json_error('Los campos "nombre" y "email" son obligatorios.', 422);
-	}
-	if (!filter_var($correoNuevo, FILTER_VALIDATE_EMAIL)) {
-		responder_json_error('El campo "email" no tiene un formato válido.', 422);
-	}
-	// Evitar duplicados por email, ignorando el propio índice que actualizamos
-	foreach ($listaUsuarios as $i => $u) {
-		if ($i === $indice) continue;
-		if (isset($u['email']) && is_string($u['email']) && mb_strtolower($u['email']) === $correoNormalizado) {
-			responder_json_error('Ya existe un usuario con ese email.', 409);
-		}
-	}
-	// Aplicar cambios
-	$listaUsuarios[$indice] = [
-		'nombre' => $nombreNuevo,
-		'email' => $correoNormalizado,
-	];
-	file_put_contents(
-		$rutaArchivoDatosJson,
-		json_encode($listaUsuarios, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n"
-	);
-	responder_json_exito($listaUsuarios, 200);
+function handle_list(): void {
+	// Leer todo el archivo y devolverlo tal cual.
+	require_auth();
+	ok(load_entries());
 }
-// 6) ELIMINAR usuario: POST /api.php?action=delete
-// Body JSON esperado: { "index": 0 }
-// Nota: podríamos usar método DELETE; aquí lo simplificamos a POST.
-if (($metodoHttpRecibido === 'POST' || $metodoHttpRecibido === 'DELETE') && $accionSolicitada ===
-'delete') {
-	asegurar_autenticado();
-// 6.1) Intentamos obtener el índice por distintos canales
-$indiceEnQuery = $_GET['index'] ?? null;
-if ($indiceEnQuery === null) {
-$cuerpoBruto = (string) file_get_contents('php://input');
-if ($cuerpoBruto !== '') {
-$datosDecodificados = json_decode($cuerpoBruto, true) ?? [];
-$indiceEnQuery = $datosDecodificados['index'] ?? null;
-} else {
-$indiceEnQuery = $_POST['index'] ?? null;
-}
-}
-// 6.2) Validaciones de existencia del parámetro
-if ($indiceEnQuery === null) {
-responder_json_error('Falta el pa rámetro "index" para eliminar.', 422);
-}
-$indiceUsuarioAEliminar = (int) $indiceEnQuery;
-if (!isset($listaUsuarios[$indiceUsuarioAEliminar])) {
-responder_json_error('El índice indicado no existe.', 404);
-}
-// 6.3) Eliminamos y reindexamos para mantener la continuidad
-unset($listaUsuarios[$indiceUsuarioAEliminar]);
-$listaUsuarios = array_values($listaUsuarios);
-// 6.4) Guardamos el nuevo estado en disco
-file_put_contents(
-$rutaArchivoDatosJson,
-json_encode($listaUsuarios, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n"
-);
-// 6.5) Devolvemos el listado actualizado
-responder_json_exito($listaUsuarios); // 200 OK
-}
-// 7) Si llegamos aquí, la acción solicitada no está soportada
-responder_json_error('Acción no soportada. Use list | create | delete', 400);
 
-/**
-* Comprueba si ya existe un usuario con el email dado (comparación exacta).
-*
-* @param array $usuarios Lista actual en memoria.
-* @param string $emailNormalizado Email normalizado en minúsculas.
-*/
-function existeEmailDuplicado(array $usuarios, string $emailNormalizado): bool {
-foreach ($usuarios as $u) {
-if (isset($u['email']) && is_string($u['email']) && mb_strtolower($u['email']) ===
-$emailNormalizado) {
-return true;
+function handle_create(): void {
+	// Agregar un registro nuevo con nombre + email.
+	require_auth();
+	$b = get_body();
+	$name = trim((string)($b['nombre'] ?? ''));
+	$email = trim((string)($b['email'] ?? ''));
+	if ($name === '' || $email === '') err('Completa nombre y email', 422);
+	$entries = load_entries();
+	$entries[] = ['nombre' => $name, 'email' => $email];
+	save_entries($entries);
+	ok($entries);
 }
+
+function handle_delete(): void {
+	// Borrar por posición en el array.
+	require_auth();
+	$idx = (int) (($b = get_body())['index'] ?? -1);
+	$entries = load_entries();
+	if (!isset($entries[$idx])) err('Índice no existe', 404);
+	array_splice($entries, $idx, 1);
+	save_entries($entries);
+	ok($entries);
 }
-return false;
+
+function handle_update(): void {
+	// Reemplazar un registro existente.
+	require_auth();
+	$b = get_body();
+	$idx = (int)($b['index'] ?? -1);
+	$name = trim((string)($b['nombre'] ?? ''));
+	$email = trim((string)($b['email'] ?? ''));
+	$entries = load_entries();
+	if (!isset($entries[$idx])) err('Índice no existe', 404);
+	if ($name === '' || $email === '') err('Completa nombre y email', 422);
+	$entries[$idx] = ['nombre' => $name, 'email' => $email];
+	save_entries($entries);
+	ok($entries);
+}
+
+// ------------------------
+// LLamar a las funciones 
+// ------------------------
+
+$action = get_action();
+
+switch ($action) {
+	case 'register': handle_register(); break;
+	case 'login': handle_login(); break;
+	case 'logout': handle_logout(); break;
+	case 'auth': handle_auth(); break;
+	case 'list': handle_list(); break;
+	case 'create': handle_create(); break;
+	case 'delete': handle_delete(); break;
+	case 'update': handle_update(); break;
+	default: err('Acción no soportada', 400);
 }
