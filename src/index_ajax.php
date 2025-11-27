@@ -2,8 +2,15 @@
 // Página protegida mínima. Redirige al login si no hay sesión.
 session_start();
 if (!isset($_SESSION['user'])) {
-        header('Location: /login.html');
-        exit;
+    header('Location: /login.html');
+    exit;
+}
+
+// Solo los administradores pueden ver este panel.
+$role = $_SESSION['user']['role'] ?? 'user';
+if ($role !== 'admin') {
+    header('Location: /sin-permiso.html');
+    exit;
 }
 ?>
 <!doctype html>

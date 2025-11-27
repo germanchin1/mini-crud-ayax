@@ -1,12 +1,14 @@
 [
     {
         "nombre": "german",
-        "email": "germanromo2006@gmail.com",
-        "password": "$2y$12$g7yJr0Ep3omw2PyI3MmabOaTLYdx0EiZhfmka6euCv2zn8EAEdSlO"
+        "email": "1@gmail.com",
+        "password": "$2y$12$NAUEWWYGJvJ5PRleFWp2v.bgnLFR9gG0WsQuizop1TDSuJWG\/8yd2",
+        "role": "admin"
     },
     {
-        "nombre": "1",
-        "email": "1@gmail.com",
-        "password": "$2y$12$wMwVohJ.hYOTqOA0RbdOjOeklJGnAZCc4gsBzX2i.EyqEFBgQ1WC."
+        "nombre": "german",
+        "email": "2@gmail.com",
+        "password": "$2y$12$.tuyiUxNeE0d01MZfCmB9eD1nOntjRx8tZt66t54WcViXYFRRRl.a",
+        "role": "user"
     }
 ]

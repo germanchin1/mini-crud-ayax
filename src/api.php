@@ -42,6 +42,12 @@ function require_auth(): void {
 	if (!isset($_SESSION['user'])) err('No autorizado', 401);
 }
 
+function require_admin(): void {
+	require_auth();
+	$role = $_SESSION['user']['role'] ?? 'user';
+	if ($role !== 'admin') err('Solo administradores', 403);
+}
+
 function load_users(): array {
 	global $USERS_FILE;
 	return read_json($USERS_FILE);
@@ -74,14 +80,15 @@ function handle_register(): void {
 	$pass = (string)($b['password'] ?? '');
 	if ($name === '' || $email === '' || $pass === '') err('Completa todos los campos', 422);
 	// Paso 2: evitar duplicados de forma muy directa.
+	$role = ($b['role'] ?? '') === 'admin' ? 'admin' : 'user';
 	$users = load_users();
 	foreach ($users as $user) {
 		if (($user['email'] ?? '') === $email) err('Ese email ya existe', 409);
 	}
 	// Paso 3: guardar y dejar sesión iniciada.
-	$users[] = ['nombre' => $name, 'email' => $email, 'password' => password_hash($pass, PASSWORD_DEFAULT)];
+	$users[] = ['nombre' => $name, 'email' => $email, 'password' => password_hash($pass, PASSWORD_DEFAULT), 'role' => $role];
 	save_users($users);
-	$_SESSION['user'] = ['nombre' => $name, 'email' => $email];
+	$_SESSION['user'] = ['nombre' => $name, 'email' => $email, 'role' => $role];
 	ok($_SESSION['user']);
 }
 
@@ -95,7 +102,8 @@ function handle_login(): void {
 		$matchesEmail = (($user['email'] ?? '') === $email);
 		$matchesPass = isset($user['password']) && password_verify($pass, $user['password']);
 		if ($matchesEmail && $matchesPass) {
-			$_SESSION['user'] = ['nombre' => $user['nombre'], 'email' => $email];
+			$role = $user['role'] ?? 'user';
+			$_SESSION['user'] = ['nombre' => $user['nombre'], 'email' => $email, 'role' => $role];
 			ok($_SESSION['user']);
 		}
 	}
@@ -120,14 +128,14 @@ function handle_auth(): void {
 // ------------------------
 
 function handle_list(): void {
-	// Leer todo el archivo y devolverlo tal cual.
-	require_auth();
+	// Leer todo el archivo y devolverlo tal cual (solo admins).
+	require_admin();
 	ok(load_entries());
 }
 
 function handle_create(): void {
-	// Agregar un registro nuevo con nombre + email.
-	require_auth();
+	// Agregar un registro nuevo con nombre + email (solo admins).
+	require_admin();
 	$b = get_body();
 	$name = trim((string)($b['nombre'] ?? ''));
 	$email = trim((string)($b['email'] ?? ''));
@@ -139,8 +147,8 @@ function handle_create(): void {
 }
 
 function handle_delete(): void {
-	// Borrar por posición en el array.
-	require_auth();
+	// Borrar por posición en el array (solo admins).
+	require_admin();
 	$idx = (int) (($b = get_body())['index'] ?? -1);
 	$entries = load_entries();
 	if (!isset($entries[$idx])) err('Índice no existe', 404);
@@ -150,8 +158,8 @@ function handle_delete(): void {
 }
 
 function handle_update(): void {
-	// Reemplazar un registro existente.
-	require_auth();
+	// Reemplazar un registro existente (solo admins).
+	require_admin();
 	$b = get_body();
 	$idx = (int)($b['index'] ?? -1);
 	$name = trim((string)($b['nombre'] ?? ''));

@@ -10,6 +10,10 @@
     <input name="nombre" placeholder="Nombre" required>
     <input name="email" type="email" placeholder="Email" required>
     <input name="password" type="password" placeholder="Contraseña" required>
+    <label>
+      <input type="checkbox" name="admin">
+      Quiero ser admin
+    </label>
     <button type="submit">Crear cuenta</button>
   </form>
   <div id="msg"></div>
@@ -18,7 +22,13 @@
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(f);
-      const body = { nombre: fd.get('nombre'), email: fd.get('email'), password: fd.get('password') };
+      const wantsAdmin = fd.get('admin') === 'on';
+      const body = {
+        nombre: fd.get('nombre'),
+        email: fd.get('email'),
+        password: fd.get('password'),
+        role: wantsAdmin ? 'admin' : 'user'
+      };
       const res = await fetch('/api.php?action=register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
       const j = await res.json();
       if (j.ok) location.href = '/index_ajax.php';

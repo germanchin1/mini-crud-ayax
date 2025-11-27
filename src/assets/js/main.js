@@ -37,6 +37,10 @@ async function apiRequest(action, { method = 'GET', body = null } = {}) {
 		location.href = '/login.html';
 		throw new Error('Sesión caducada');
 	}
+	if (response.status === 403) {
+		location.href = '/sin-permiso.html';
+		throw new Error('Requiere rol admin');
+	}
 	return response.json();
 }
 
